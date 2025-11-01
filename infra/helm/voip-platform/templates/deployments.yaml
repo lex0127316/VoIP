@@ -1,0 +1,57 @@
+{{- $root := . -}}
+{{- range $name, $svc := .Values.services }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "voip-platform.fullname" $root }}-{{ $name }}
+  labels:
+    app.kubernetes.io/name: {{ include "voip-platform.name" $root }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  replicas: {{ default 1 $svc.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "voip-platform.name" $root }}
+      app.kubernetes.io/component: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "voip-platform.name" $root }}
+        app.kubernetes.io/component: {{ $name }}
+    spec:
+      containers:
+        - name: {{ $name }}
+          image: {{ $svc.image.repository }}:{{ $svc.image.tag }}
+          imagePullPolicy: {{ default "IfNotPresent" $svc.image.pullPolicy }}
+          ports:
+            - containerPort: {{ $svc.port }}
+          env:
+            {{- range $root.Values.global.env }}
+            - name: {{ .name }}
+              value: "{{ .value }}"
+            {{- end }}
+            {{- range $svc.env }}
+            - name: {{ .name }}
+              value: "{{ .value }}"
+            {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "voip-platform.fullname" $root }}-{{ $name }}
+  labels:
+    app.kubernetes.io/name: {{ include "voip-platform.name" $root }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ include "voip-platform.name" $root }}
+    app.kubernetes.io/component: {{ $name }}
+  ports:
+    - name: http
+      port: {{ $svc.port }}
+      targetPort: {{ $svc.port }}
+---
+{{- end }}
+
+

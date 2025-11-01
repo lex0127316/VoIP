@@ -1,10 +1,46 @@
-replicaCount: 1
+global:
+  env:
+    - name: RUST_LOG
+      value: info
 
-image:
-  repository: example/voip-service
-  tag: latest
-  pullPolicy: IfNotPresent
+services:
+  signaling:
+    image: { repository: example/signaling, tag: latest, pullPolicy: IfNotPresent }
+    replicas: 1
+    port: 8080
+    env:
+      - name: JWT_SECRET
+        value: dev_secret_change_me
+      - name: REDIS_URL
+        value: redis://redis.example:6379
 
-resources: {}
+  api:
+    image: { repository: example/api, tag: latest, pullPolicy: IfNotPresent }
+    replicas: 1
+    port: 8081
+    env: []
+
+  pbx:
+    image: { repository: example/pbx, tag: latest, pullPolicy: IfNotPresent }
+    replicas: 1
+    port: 8082
+    env:
+      - name: DATABASE_URL
+        value: postgres://postgres:postgres@postgres.example:5432/voip
+
+  media:
+    image: { repository: example/media, tag: latest, pullPolicy: IfNotPresent }
+    replicas: 1
+    port: 8083
+    env:
+      - name: STUN_URLS
+        value: stun:stun.l.google.com:19302
+      - name: TURN_URL
+        value: turn:turn.example.com:3478
+      - name: TURN_USERNAME
+        value: user
+      - name: TURN_PASSWORD
+        value: pass
+
 
 
