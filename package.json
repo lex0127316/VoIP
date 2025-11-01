@@ -1,0 +1,15 @@
+{
+  "name": "voip-platform",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "frontend/*"
+  ],
+  "scripts": {
+    "dev": "echo \"Use workspace dev scripts\"",
+    "build": "echo \"Use workspace build scripts\"",
+    "lint": "echo \"Use workspace lint scripts\""
+  }
+}
+
+

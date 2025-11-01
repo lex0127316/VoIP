@@ -1,0 +1,8 @@
+apiVersion: v2
+name: voip-platform
+description: Helm chart for VoIP Platform services
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+

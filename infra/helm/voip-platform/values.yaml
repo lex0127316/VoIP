@@ -1,0 +1,10 @@
+replicaCount: 1
+
+image:
+  repository: example/voip-service
+  tag: latest
+  pullPolicy: IfNotPresent
+
+resources: {}
+
+

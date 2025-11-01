@@ -1,0 +1,22 @@
+# Node
+node_modules/
+.next/
+.turbo/
+dist/
+coverage/
+
+# Rust
+target/
+**/*.rs.bk
+
+# OS / Misc
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.*
+
+# Docker
+.docker/
+
+
