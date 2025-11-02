@@ -12,7 +12,10 @@ type SignalingCallbacks = {
   onError?: (error: Event) => void;
 };
 
-const DEFAULT_SIGNALING_URL = 'ws://localhost:8080/ws';
+const DEFAULT_SIGNALING_URL =
+  process.env.NODE_ENV === 'development'
+    ? 'ws://localhost:8080/ws'
+    : 'wss://signaling.voip.example.com/ws';
 
 function buildUrl(token: string): string {
   if (typeof window === 'undefined') {

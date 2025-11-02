@@ -10,7 +10,10 @@ export type ApiFetchOptions = RequestInit & {
   parseJson?: boolean;
 };
 
-const DEFAULT_BASE_URL = 'http://localhost:8081';
+const DEFAULT_BASE_URL =
+  process.env.NODE_ENV === 'development'
+    ? 'http://localhost:8081'
+    : 'https://api.voip.example.com';
 
 function getBaseUrl(): string {
   if (typeof window !== 'undefined') {

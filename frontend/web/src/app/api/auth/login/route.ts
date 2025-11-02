@@ -32,7 +32,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Missing credentials' }, { status: 400 });
   }
 
-  const demoPassword = process.env.DEMO_PASSWORD ?? 'changeme';
+  const demoPassword =
+    process.env.DEMO_PASSWORD ?? (process.env.NODE_ENV === 'development' ? 'changeme' : undefined);
+
+  if (!demoPassword) {
+    return NextResponse.json({ error: 'DEMO_PASSWORD not configured' }, { status: 500 });
+  }
+
   if (process.env.NODE_ENV !== 'development' && password !== demoPassword) {
     return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
   }
