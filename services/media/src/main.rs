@@ -1,7 +1,14 @@
-use axum::{routing::{get, post}, Json, Router};
 use axum::http::StatusCode;
+use axum::{
+    routing::{get, post},
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, net::{Ipv4Addr, SocketAddr}, sync::Arc};
+use std::{
+    collections::HashMap,
+    net::{Ipv4Addr, SocketAddr},
+    sync::Arc,
+};
 use tokio::{net::UdpSocket, sync::RwLock};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
@@ -37,7 +44,9 @@ impl Relay {
             loop {
                 match relay_clone.socket.recv_from(&mut buf).await {
                     Ok((n, from)) => {
-                        if n == 0 { continue; }
+                        if n == 0 {
+                            continue;
+                        }
 
                         // On first packets from each side expect a small handshake: b"HELLO " + side ("a" or "b")
                         if &buf[..n].starts_with(b"HELLO ") {
@@ -94,11 +103,19 @@ struct AllocResponse {
     relay_port: u16,
 }
 
-async fn alloc(Json(_): Json<serde_json::Value>, state: axum::extract::State<AppState>) -> Result<Json<AllocResponse>, StatusCode> {
-    let (relay, port) = Relay::new().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+async fn alloc(
+    Json(_): Json<serde_json::Value>,
+    state: axum::extract::State<AppState>,
+) -> Result<Json<AllocResponse>, StatusCode> {
+    let (relay, port) = Relay::new()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let id = relay.id;
     state.relays.write().await.insert(id, relay);
-    Ok(Json(AllocResponse { session_id: id, relay_port: port }))
+    Ok(Json(AllocResponse {
+        session_id: id,
+        relay_port: port,
+    }))
 }
 
 #[derive(Serialize)]
@@ -109,7 +126,11 @@ struct IceServersResponse {
 async fn ice_servers() -> Json<IceServersResponse> {
     let mut servers = Vec::new();
     if let Ok(urls) = std::env::var("STUN_URLS") {
-        let list: Vec<String> = urls.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        let list: Vec<String> = urls
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
         if !list.is_empty() {
             servers.push(serde_json::json!({"urls": list}));
         }
@@ -125,7 +146,9 @@ async fn ice_servers() -> Json<IceServersResponse> {
             "credential": credential
         }));
     }
-    Json(IceServersResponse { iceServers: servers })
+    Json(IceServersResponse {
+        iceServers: servers,
+    })
 }
 
 #[tokio::main]
@@ -137,7 +160,9 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let state = AppState { relays: Arc::new(RwLock::new(HashMap::new())) };
+    let state = AppState {
+        relays: Arc::new(RwLock::new(HashMap::new())),
+    };
 
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -151,5 +176,3 @@ async fn main() {
         .await
         .unwrap();
 }
-
-

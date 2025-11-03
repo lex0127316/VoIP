@@ -1,4 +1,8 @@
-use axum::{extract::State, routing::{get, post, put}, Json, Router};
+use axum::{
+    extract::State,
+    routing::{get, post, put},
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::net::SocketAddr;
@@ -25,9 +29,13 @@ struct CreateFlowRequest {
     config: serde_json::Value,
 }
 
-async fn health() -> &'static str { "ok" }
+async fn health() -> &'static str {
+    "ok"
+}
 
-async fn list_flows(State(state): State<AppState>) -> anyhow::Result<Json<Vec<CallFlow>>, axum::http::StatusCode> {
+async fn list_flows(
+    State(state): State<AppState>,
+) -> anyhow::Result<Json<Vec<CallFlow>>, axum::http::StatusCode> {
     let rows = sqlx::query(
         r#"SELECT id, tenant_id, name, config FROM call_flows ORDER BY created_at DESC LIMIT 100"#,
     )
@@ -42,7 +50,12 @@ async fn list_flows(State(state): State<AppState>) -> anyhow::Result<Json<Vec<Ca
             let tenant_id: Uuid = row.try_get("tenant_id").ok()?;
             let name: String = row.try_get("name").ok()?;
             let config: serde_json::Value = row.try_get("config").ok()?;
-            Some(CallFlow { id, tenant_id, name, config })
+            Some(CallFlow {
+                id,
+                tenant_id,
+                name,
+                config,
+            })
         })
         .collect();
 
@@ -54,18 +67,21 @@ async fn create_flow(
     Json(req): Json<CreateFlowRequest>,
 ) -> Result<Json<CallFlow>, axum::http::StatusCode> {
     let id = Uuid::new_v4();
-    sqlx::query(
-        r#"INSERT INTO call_flows (id, tenant_id, name, config) VALUES ($1, $2, $3, $4)"#,
-    )
-    .bind(id)
-    .bind(req.tenant_id)
-    .bind(&req.name)
-    .bind(&req.config)
-    .execute(&state.db)
-    .await
-    .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    sqlx::query(r#"INSERT INTO call_flows (id, tenant_id, name, config) VALUES ($1, $2, $3, $4)"#)
+        .bind(id)
+        .bind(req.tenant_id)
+        .bind(&req.name)
+        .bind(&req.config)
+        .execute(&state.db)
+        .await
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(CallFlow { id, tenant_id: req.tenant_id, name: req.name, config: req.config }))
+    Ok(Json(CallFlow {
+        id,
+        tenant_id: req.tenant_id,
+        name: req.name,
+        config: req.config,
+    }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -80,18 +96,21 @@ async fn update_flow(
     Json(req): Json<UpdateFlowRequest>,
 ) -> Result<Json<CallFlow>, axum::http::StatusCode> {
     // get current
-    let row = sqlx::query(
-        r#"SELECT name, config FROM call_flows WHERE tenant_id = $1 AND id = $2"#,
-    )
-    .bind(tenant_id)
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+    let row =
+        sqlx::query(r#"SELECT name, config FROM call_flows WHERE tenant_id = $1 AND id = $2"#)
+            .bind(tenant_id)
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(axum::http::StatusCode::NOT_FOUND)?;
 
-    let current_name: String = row.try_get("name").map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
-    let current_config: serde_json::Value = row.try_get("config").map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    let current_name: String = row
+        .try_get("name")
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    let current_config: serde_json::Value = row
+        .try_get("config")
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let new_name = req.name.unwrap_or(current_name);
     let new_config = req.config.unwrap_or(current_config);
@@ -107,7 +126,12 @@ async fn update_flow(
     .await
     .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(CallFlow { id, tenant_id, name: new_name, config: new_config }))
+    Ok(Json(CallFlow {
+        id,
+        tenant_id,
+        name: new_name,
+        config: new_config,
+    }))
 }
 
 #[tokio::main]
@@ -119,7 +143,8 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/voip".to_string());
+    let db_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/voip".to_string());
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
         .connect(&db_url)
@@ -134,11 +159,9 @@ async fn main() {
         .route("/flows/:tenant_id/:id", put(update_flow))
         .with_state(state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8082));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 8081));
     tracing::info!(%addr, "pbx service starting");
     axum::serve(tokio::net::TcpListener::bind(addr).await.unwrap(), app)
         .await
         .unwrap();
 }
-
-

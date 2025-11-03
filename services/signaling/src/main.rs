@@ -1,3 +1,4 @@
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::{
     extract::{Query, State},
     http::HeaderMap,
@@ -5,7 +6,6 @@ use axum::{
     routing::get,
     Router,
 };
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 use std::net::SocketAddr;
@@ -133,7 +133,8 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_change_me".to_string());
+    let jwt_secret =
+        std::env::var("JWT_SECRET").unwrap_or_else(|_| "dev_secret_change_me".to_string());
     let decoding_key = Arc::new(DecodingKey::from_secret(jwt_secret.as_bytes()));
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
@@ -168,7 +169,17 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
-        .route("/ws", get(|ws: WebSocketUpgrade, headers: HeaderMap, params: Query<WsParams>, State(state): State<AppState>| async move { ws_handler(ws, headers, params, State(state)).await }))
+        .route(
+            "/ws",
+            get(
+                |ws: WebSocketUpgrade,
+                 headers: HeaderMap,
+                 params: Query<WsParams>,
+                 State(state): State<AppState>| async move {
+                    ws_handler(ws, headers, params, State(state)).await
+                },
+            ),
+        )
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
@@ -177,5 +188,3 @@ async fn main() {
         .await
         .unwrap();
 }
-
-

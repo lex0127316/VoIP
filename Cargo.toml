@@ -1,7 +1,8 @@
 [workspace]
 members = [
     "services/*",
-    "shared/*",
+    "shared/dto",
+    "shared/models",
 ]
 resolver = "2"
 
