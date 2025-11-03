@@ -20,10 +20,13 @@ const FALLBACK_USERS: UserRecord[] = [
 export default function UserManagement(): JSX.Element {
   const [selectedRole, setSelectedRole] = useState<'all' | UserRecord['role']>('all');
 
-  const { data: users, loading, error, refetch } = useApiQuery<UserRecord[]>('/users', {
+  const { data: usersResponse, loading, error, refetch } = useApiQuery<{ users?: UserRecord[] }>('/users', {
     fallbackData: FALLBACK_USERS,
     pollIntervalMs: 60000,
   });
+
+  const latestUsers = Array.isArray(usersResponse) ? usersResponse : usersResponse?.users;
+  const users = latestUsers ?? FALLBACK_USERS;
 
   const { mutate: inviteUser, loading: inviting } = useApiMutation<Partial<UserRecord>, UserRecord>(
     '/users',
@@ -34,7 +37,7 @@ export default function UserManagement(): JSX.Element {
     },
   );
 
-  const filteredUsers = (users ?? FALLBACK_USERS).filter((user) => selectedRole === 'all' || user.role === selectedRole);
+  const filteredUsers = users.filter((user) => selectedRole === 'all' || user.role === selectedRole);
 
   return (
     <div className="space-y-6">

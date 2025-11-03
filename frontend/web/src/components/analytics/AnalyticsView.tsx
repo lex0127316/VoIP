@@ -27,7 +27,7 @@ export default function AnalyticsView(): JSX.Element {
     pollIntervalMs: 60000,
   });
 
-  const points = data?.series && data.series.length > 0 ? data.series : FALLBACK_ANALYTICS;
+  const points = Array.isArray(data?.series) && data?.series.length > 0 ? data.series : FALLBACK_ANALYTICS;
 
   const aggregates = useMemo(() => {
     const totalCalls = points.reduce((sum, point) => sum + point.calls, 0);

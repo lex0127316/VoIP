@@ -36,9 +36,19 @@ export default function CallflowBuilder(): JSX.Element {
   const [newNodeLabel, setNewNodeLabel] = useState('');
   const [newNodeType, setNewNodeType] = useState<CallflowNode['type']>('menu');
 
-  const { data: callflows, refetch } = useApiQuery<Callflow[]>('/callflows', {
+  const { data: callflowsResponse, refetch } = useApiQuery<{ callflows?: Callflow[] }>('/callflows', {
     fallbackData: [DEFAULT_CALLFLOW],
   });
+
+  const callflows = useMemo<Callflow[]>(() => {
+    if (Array.isArray(callflowsResponse)) {
+      return callflowsResponse;
+    }
+    if (Array.isArray(callflowsResponse?.callflows) && callflowsResponse.callflows.length > 0) {
+      return callflowsResponse.callflows;
+    }
+    return [DEFAULT_CALLFLOW];
+  }, [callflowsResponse]);
 
   const { mutate: saveCallflow, loading: saving } = useApiMutation<Callflow, Callflow>(
     '/callflows',
@@ -51,8 +61,7 @@ export default function CallflowBuilder(): JSX.Element {
   );
 
   const selectedFlow = useMemo(() => {
-    const list = callflows ?? [DEFAULT_CALLFLOW];
-    return list.find((flow) => flow.id === selectedFlowId) ?? list[0];
+    return callflows.find((flow) => flow.id === selectedFlowId) ?? callflows[0];
   }, [callflows, selectedFlowId]);
 
   const handleAddNode = () => {

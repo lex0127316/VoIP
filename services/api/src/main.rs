@@ -18,6 +18,95 @@ async fn metrics_overview() -> Json<serde_json::Value> {
     }))
 }
 
+async fn list_users() -> Json<serde_json::Value> {
+    Json(json!({
+        "users": [
+            {
+                "id": "1",
+                "name": "Avery Harper",
+                "email": "avery@example.com",
+                "role": "admin",
+                "status": "active"
+            },
+            {
+                "id": "2",
+                "name": "Morgan Lee",
+                "email": "morgan@example.com",
+                "role": "agent",
+                "status": "active"
+            },
+            {
+                "id": "3",
+                "name": "Riley Chen",
+                "email": "riley@example.com",
+                "role": "supervisor",
+                "status": "invited"
+            }
+        ]
+    }))
+}
+
+async fn invite_user() -> Json<serde_json::Value> {
+    Json(json!({ "ok": true }))
+}
+
+async fn list_callflows() -> Json<serde_json::Value> {
+    Json(json!({
+        "callflows": [
+            {
+                "id": "default",
+                "name": "Main IVR",
+                "updatedAt": chrono::Utc::now().to_rfc3339(),
+                "nodes": [
+                    {
+                        "id": "welcome",
+                        "type": "menu",
+                        "label": "Welcome prompt"
+                    },
+                    {
+                        "id": "sales",
+                        "type": "queue",
+                        "label": "Route to sales queue",
+                        "target": "sales_queue"
+                    },
+                    {
+                        "id": "support",
+                        "type": "queue",
+                        "label": "Route to support queue",
+                        "target": "support_queue"
+                    },
+                    {
+                        "id": "after-hours",
+                        "type": "voicemail",
+                        "label": "After hours voicemail",
+                        "target": "general_vm"
+                    }
+                ]
+            }
+        ]
+    }))
+}
+
+async fn upsert_callflow() -> Json<serde_json::Value> {
+    Json(json!({ "ok": true }))
+}
+
+async fn analytics_voice() -> Json<serde_json::Value> {
+    let series: Vec<_> = (0..8)
+        .map(|idx| {
+            let ts = chrono::Utc::now() - chrono::Duration::hours(idx);
+            json!({
+                "timestamp": ts.to_rfc3339(),
+                "calls": 20 + idx * 3,
+                "avgDuration": 180 + idx * 12,
+                "sentiment": 0.65 + (idx as f64) * 0.02
+            })
+        })
+        .collect();
+
+    Json(json!({ "series": series }))
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::registry()
@@ -40,6 +129,9 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health))
         .route("/metrics/overview", get(metrics_overview))
+        .route("/users", get(list_users).post(invite_user))
+        .route("/callflows", get(list_callflows).put(upsert_callflow))
+        .route("/analytics/voice", get(analytics_voice))
         .layer(cors);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tracing::info!(%addr, "api service starting");

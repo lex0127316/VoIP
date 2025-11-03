@@ -25,5 +25,6 @@ jsonwebtoken = "9"
 redis = { version = "0.25", features = ["tokio-comp"] }
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono"] }
 tower-http = { version = "0.5", features = ["cors"] }
+chrono = { version = "0.4", features = ["std", "clock"] }
 
 
