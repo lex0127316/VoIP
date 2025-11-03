@@ -25,6 +25,24 @@ export function useApiQuery<TData = unknown>(path: string, options: UseApiQueryO
   const [loading, setLoading] = useState<boolean>(enabled);
   const [error, setError] = useState<ApiError | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const transformRef = useRef<typeof transform>(transform);
+  const onErrorRef = useRef<typeof onError>(onError);
+  const fallbackRef = useRef<TData | undefined>(fallbackData);
+
+  useEffect(() => {
+    transformRef.current = transform;
+  }, [transform]);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
+  useEffect(() => {
+    fallbackRef.current = fallbackData;
+    if (fallbackData !== undefined && data === undefined) {
+      setData(fallbackData);
+    }
+  }, [fallbackData, data]);
 
   const fetchData = useCallback(async () => {
     if (!enabled) {
@@ -36,20 +54,20 @@ export function useApiQuery<TData = unknown>(path: string, options: UseApiQueryO
 
     try {
       const result = await apiFetch<TData>(path, {
-        transformResponse: transform,
+        transformResponse: transformRef.current,
       });
       setData(result);
     } catch (err) {
       const apiError = err as ApiError;
       setError(apiError);
-      if (fallbackData !== undefined) {
-        setData(fallbackData);
+      if (fallbackRef.current !== undefined) {
+        setData(fallbackRef.current);
       }
-      onError?.(apiError);
+      onErrorRef.current?.(apiError);
     } finally {
       setLoading(false);
     }
-  }, [enabled, fallbackData, onError, path, transform]);
+  }, [enabled, path]);
 
   useEffect(() => {
     fetchData();
