@@ -1,3 +1,10 @@
+/**
+ * Main operator dashboard visualising overall platform health.
+ *
+ * Every widget subscribes to REST endpoints exposed by the API shim; the hook
+ * wrappers handle polling and fallbacks so the UI renders instantly while data
+ * is on the way.
+ */
 'use client';
 
 import Link from 'next/link';
@@ -24,6 +31,7 @@ const FALLBACK_METRICS: Metrics = {
 export default function DashboardView(): JSX.Element {
   const { session, status } = useSession();
 
+  // Live service KPIs – polled every 15s to keep the heads-up display fresh.
   const { data: metrics, loading: metricsLoading, error: metricsError } = useApiQuery<Metrics>('/metrics/overview', {
     fallbackData: FALLBACK_METRICS,
     pollIntervalMs: 15000,
@@ -44,11 +52,13 @@ export default function DashboardView(): JSX.Element {
     },
   });
 
+  // Fast health endpoint read to color-code the API availability badge.
   const { data: health } = useApiQuery<{ status?: string }>('/health', {
     fallbackData: { status: 'unknown' },
     pollIntervalMs: 30000,
   });
 
+  // Convert the decimal SLA into a user-friendly percentage for the badge.
   const availability = useMemo(() => {
     const value = metrics?.serviceLevel ?? FALLBACK_METRICS.serviceLevel;
     return `${Math.round(value * 100)}%`;

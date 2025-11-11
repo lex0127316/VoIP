@@ -1,3 +1,9 @@
+/**
+ * Lightweight admin surface for managing agents.
+ *
+ * Uses the generic API hooks to fetch a roster, trigger invitations, and keep
+ * the UI responsive while backend operations complete.
+ */
 'use client';
 
 import { useState } from 'react';
@@ -20,14 +26,17 @@ const FALLBACK_USERS: UserRecord[] = [
 export default function UserManagement(): JSX.Element {
   const [selectedRole, setSelectedRole] = useState<'all' | UserRecord['role']>('all');
 
+  // Query the roster; we accept either the plain array or wrapped payload shape.
   const { data: usersResponse, loading, error, refetch } = useApiQuery<{ users?: UserRecord[] }>('/users', {
     fallbackData: FALLBACK_USERS,
     pollIntervalMs: 60000,
   });
 
+  // Normalise the response into a simple array for filtering.
   const latestUsers = Array.isArray(usersResponse) ? usersResponse : usersResponse?.users;
   const users = latestUsers ?? FALLBACK_USERS;
 
+  // POST invites a new agent; on success we refetch to reflect the latest roster.
   const { mutate: inviteUser, loading: inviting } = useApiMutation<Partial<UserRecord>, UserRecord>(
     '/users',
     {
@@ -37,6 +46,7 @@ export default function UserManagement(): JSX.Element {
     },
   );
 
+  // Simple client-side filtering keeps the UI snappy for small datasets.
   const filteredUsers = users.filter((user) => selectedRole === 'all' || user.role === selectedRole);
 
   return (

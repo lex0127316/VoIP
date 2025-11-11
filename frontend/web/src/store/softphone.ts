@@ -1,3 +1,13 @@
+/**
+ * Centralised softphone state machine used across the web UI.
+ *
+ * The store coordinates WebRTC streams, the signalling websocket, and the
+ * user-visible call state transitions (idle → connecting → ringing → in-call → ended).
+ * Buffered signal frames ensure renegotiation payloads are never dropped even if
+ * the peer connection has not finished initialising.
+ * Each action below mirrors a user gesture (dial, answer, hangup) or an event
+ * delivered from the Rust signalling service.
+ */
 'use client';
 
 import create from 'zustand';
@@ -36,12 +46,15 @@ type SoftphoneStore = {
 
 let signalingClient: SignalingClient | null = null;
 let peer: PeerInstance | null = null;
+// If the peer connection is not ready when remote SDP arrives we temporarily
+// buffer it here. Once Simple-Peer initialises we flush in insertion order.
 let queuedSignals: SignalData[] = [];
 
 type SetState = (fn: (state: SoftphoneStore) => Partial<SoftphoneStore>) => void;
 type GetState = () => SoftphoneStore;
 
 function appendLog(set: SetState, message: string) {
+  // Maintain a bounded log so the in-app console never grows unbounded.
   const entry: LogEntry = {
     id: crypto.randomUUID(),
     message,
@@ -63,6 +76,7 @@ async function ensureLocalStream(set: SetState, get: GetState): Promise<MediaStr
     return existing;
   }
 
+  // Lazily acquire the microphone only when the user initiates audio.
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   set(() => ({ localStream: stream }));
   return stream;
@@ -83,10 +97,12 @@ async function createPeer(
       });
 
       instance.on('signal', (data: SignalData) => {
+        // Bubble raw SDP/ICE data to the signalling layer which forwards it to the peer.
         signalingClient?.send({ type: 'signal', callId, data });
       });
 
       instance.on('stream', (remoteStream) => {
+        // Attach the remote track so the UI can play the caller audio.
         set(() => ({ remoteStream }));
       });
 
@@ -117,6 +133,7 @@ function cleanupPeer(set: SetState, get: GetState) {
     peer.destroy();
     peer = null;
   }
+  // Tear down any media tracks to release the microphone/speaker promptly.
   const { localStream, remoteStream } = get();
   stopStream(localStream);
   stopStream(remoteStream);
@@ -143,6 +160,7 @@ export const useSoftphoneStore = create<SoftphoneStore>((set, get) => ({
       return;
     }
 
+    // Prevent duplicate websocket handshakes when the UI renders multiple times.
     const currentStatus = get().signalingStatus;
     if (currentStatus === 'connected' || currentStatus === 'connecting') {
       return;
@@ -156,6 +174,7 @@ export const useSoftphoneStore = create<SoftphoneStore>((set, get) => ({
         throw new Error('Missing auth token');
       }
 
+      // The signalling client relays events between this browser and the Rust service.
       signalingClient = new SignalingClient({
         onOpen: () => {
           set(() => ({ signalingStatus: 'connected', statusMessage: 'Signaling connected' }));
@@ -182,6 +201,7 @@ export const useSoftphoneStore = create<SoftphoneStore>((set, get) => ({
   },
 
   disconnectSignaling: () => {
+    // Typically invoked when the user signs out or closes the softphone panel.
     signalingClient?.disconnect();
     signalingClient = null;
     set(() => ({ signalingStatus: 'disconnected' }));
@@ -193,6 +213,7 @@ export const useSoftphoneStore = create<SoftphoneStore>((set, get) => ({
       return;
     }
 
+    // Dial pad is always authoritative – empty numbers are ignored.
     const state = get();
     if (!state.dialNumber.trim()) {
       appendLog(set, 'Enter a destination number before calling');
@@ -204,6 +225,7 @@ export const useSoftphoneStore = create<SoftphoneStore>((set, get) => ({
     appendLog(set, `Dialing ${state.dialNumber}`);
 
     try {
+      // Outbound calls originate as the initiator which triggers Simple-Peer to create offers.
       const stream = await ensureLocalStream(set, get);
       peer = await createPeer(true, callId, stream, set);
       queuedSignals.forEach((signal) => peer?.signal(signal));
@@ -228,6 +250,7 @@ export const useSoftphoneStore = create<SoftphoneStore>((set, get) => ({
     }
 
     try {
+      // Answering flips the direction – we join the existing offer.
       const stream = await ensureLocalStream(set, get);
       peer = await createPeer(false, state.callId, stream, set);
       queuedSignals.forEach((signal) => peer?.signal(signal));
@@ -247,12 +270,15 @@ export const useSoftphoneStore = create<SoftphoneStore>((set, get) => ({
     if (state.callId) {
       signalingClient?.send({ type: 'call.ended', callId: state.callId });
     }
+    // Ensure both media and signalling state transitions to "idle".
     cleanupPeer(set, get);
     set(() => ({ callState: 'ended', statusMessage: 'Call ended', callId: null, incomingNumber: null }));
     appendLog(set, 'Call ended');
   },
 
   handleSignalingEvent: (event: SignalingEvent) => {
+    // All signalling messages funnel through this reducer so we have a single
+    // place to reason about call state transitions.
     const state = get();
     switch (event.type) {
       case 'call.incoming': {
@@ -263,6 +289,7 @@ export const useSoftphoneStore = create<SoftphoneStore>((set, get) => ({
         break;
       }
       case 'call.ringing': {
+        // Remote PBX confirmed the call is alerting the destination.
         set(() => ({ callState: 'ringing', statusMessage: 'Ringing...' }));
         appendLog(set, 'Remote phone ringing');
         break;
@@ -273,12 +300,14 @@ export const useSoftphoneStore = create<SoftphoneStore>((set, get) => ({
         break;
       }
       case 'call.ended': {
+        // Either party hung up – mirror the termination and release resources.
         appendLog(set, 'Remote ended the call');
         cleanupPeer(set, get);
         set(() => ({ callState: 'ended', statusMessage: 'Call ended by remote', callId: null, incomingNumber: null }));
         break;
       }
       case 'call.error': {
+        // Transport/PBX errors surface as a final terminal state.
         const message = (event.message as string) ?? 'Call error';
         appendLog(set, message);
         set(() => ({ callState: 'error', statusMessage: message, error: message }));
@@ -291,6 +320,7 @@ export const useSoftphoneStore = create<SoftphoneStore>((set, get) => ({
           break;
         }
 
+        // During setup we may not have a Simple-Peer instance yet. Buffer until ready.
         if (peer) {
           peer.signal(data);
         } else {
@@ -299,6 +329,7 @@ export const useSoftphoneStore = create<SoftphoneStore>((set, get) => ({
         break;
       }
       case 'presence': {
+        // Presence events currently just surface in the on-screen log.
         const message = (event.message as string) ?? 'Presence update';
         appendLog(set, message);
         break;

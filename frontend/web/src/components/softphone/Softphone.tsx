@@ -1,3 +1,11 @@
+/**
+ * UI wrapper around the softphone state machine.
+ *
+ * The component reacts to Zustand updates emitted by `useSoftphoneStore`
+ * and binds browser media elements to the underlying WebRTC streams.
+ * All user gestures (connect, call, answer, hang up) delegate to the store
+ * so business logic remains centralised.
+ */
 'use client';
 
 import { useEffect, useMemo, useRef } from 'react';
@@ -34,12 +42,14 @@ export default function Softphone(): JSX.Element {
 
   useEffect(() => {
     if (localAudioRef.current && localStream) {
+      // The local stream is muted but rendered so the user sees microphone activity.
       localAudioRef.current.srcObject = localStream;
     }
   }, [localStream]);
 
   useEffect(() => {
     if (remoteAudioRef.current && remoteStream) {
+      // Remote audio flows once the peer connection finishes negotiation.
       remoteAudioRef.current.srcObject = remoteStream;
     }
   }, [remoteStream]);

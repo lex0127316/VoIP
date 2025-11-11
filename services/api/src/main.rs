@@ -1,13 +1,19 @@
+//! HTTP facade consumed by the Next.js frontend while the deeper services are
+//! still taking shape. Every handler returns deterministic data so the UI can
+//! exercise navigation, state machines, and error boundaries.
+
 use axum::{http::Method, routing::get, Json, Router};
 use serde_json::json;
 use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+/// Lightweight health probe used by readiness checks and dashboards.
 async fn health() -> Json<serde_json::Value> {
     Json(json!({"status":"ok"}))
 }
 
+/// Stub out metrics normally delivered by the analytics stack.
 async fn metrics_overview() -> Json<serde_json::Value> {
     Json(json!({
         "activeCalls": 12,
@@ -18,6 +24,7 @@ async fn metrics_overview() -> Json<serde_json::Value> {
     }))
 }
 
+/// Simulate a paged set of users for the admin portal.
 async fn list_users() -> Json<serde_json::Value> {
     Json(json!({
         "users": [
@@ -46,10 +53,15 @@ async fn list_users() -> Json<serde_json::Value> {
     }))
 }
 
+/// Accept user provisioning requests.
+//
+// In production this would publish to a queue or call into the PBX. For now we
+// acknowledge immediately so the UI can exercise optimistic updates.
 async fn invite_user() -> Json<serde_json::Value> {
     Json(json!({ "ok": true }))
 }
 
+/// Mirror PBX data so the builder can render a canonical call-flow.
 async fn list_callflows() -> Json<serde_json::Value> {
     Json(json!({
         "callflows": [
@@ -87,10 +99,15 @@ async fn list_callflows() -> Json<serde_json::Value> {
     }))
 }
 
+/// Persist a call-flow change coming from the UI.
 async fn upsert_callflow() -> Json<serde_json::Value> {
     Json(json!({ "ok": true }))
 }
 
+/// Provide synthetic voice analytics for the dashboard.
+///
+/// The data mimics what an OLAP pipeline would eventually emit (hourly buckets,
+/// moving averages, sentiment inference, etc.).
 async fn analytics_voice() -> Json<serde_json::Value> {
     let series: Vec<_> = (0..8)
         .map(|idx| {
@@ -107,6 +124,8 @@ async fn analytics_voice() -> Json<serde_json::Value> {
     Json(json!({ "series": series }))
 }
 
+/// Boot the API shim, layering permissive CORS so the local Next.js app can
+/// talk to it without extra plumbing.
 #[tokio::main]
 async fn main() {
     tracing_subscriber::registry()
@@ -121,12 +140,15 @@ async fn main() {
         .and_then(|value| value.parse::<u16>().ok())
         .unwrap_or(8081);
 
+    // Frontend and API live on different origins during local development so we
+    // allow every origin/method while prototyping. Tighten before production.
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers(Any);
 
     let app = Router::new()
+        // Keep routes minimal; each mirrors a section of the dashboard UI.
         .route("/health", get(health))
         .route("/metrics/overview", get(metrics_overview))
         .route("/users", get(list_users).post(invite_user))

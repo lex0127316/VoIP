@@ -1,3 +1,9 @@
+/**
+ * Minimal data fetching hooks for the dashboard apps.
+ *
+ * These wrappers provide polling, optimistic fallback data, and shared error
+ * handling so each page can focus on presentation.
+ */
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -24,7 +30,9 @@ export function useApiQuery<TData = unknown>(path: string, options: UseApiQueryO
   const [data, setData] = useState<TData | undefined>(fallbackData);
   const [loading, setLoading] = useState<boolean>(enabled);
   const [error, setError] = useState<ApiError | null>(null);
+  // store poll timer across renders so it can be cleared if dependencies change
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Hold the latest callbacks/values to keep the fetch lambda stable.
   const transformRef = useRef<typeof transform>(transform);
   const onErrorRef = useRef<typeof onError>(onError);
   const fallbackRef = useRef<TData | undefined>(fallbackData);
@@ -38,6 +46,7 @@ export function useApiQuery<TData = unknown>(path: string, options: UseApiQueryO
   }, [onError]);
 
   useEffect(() => {
+    // Keep local state hydrated with the latest fallback snapshot so first render has data.
     fallbackRef.current = fallbackData;
     if (fallbackData !== undefined && data === undefined) {
       setData(fallbackData);
@@ -49,6 +58,7 @@ export function useApiQuery<TData = unknown>(path: string, options: UseApiQueryO
       return;
     }
 
+    // Every refetch goes through the same optimistic/fallback path so callers see consistent behaviour.
     setLoading(true);
     setError(null);
 

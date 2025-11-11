@@ -1,3 +1,9 @@
+/**
+ * Voice analytics overview.
+ *
+ * Polls the metrics endpoint, hydrates charts with either live or fallback data,
+ * and summarises the resulting aggregates for supervisors.
+ */
 'use client';
 
 import { useMemo } from 'react';
@@ -22,14 +28,17 @@ const FALLBACK_ANALYTICS: AnalyticsPoint[] = Array.from({ length: 8 }).map((_, i
 }));
 
 export default function AnalyticsView(): JSX.Element {
+  // We poll analytics once a minute; the hook keeps stale data visible between refreshes.
   const { data, loading, error } = useApiQuery<AnalyticsResponse>('/analytics/voice', {
     fallbackData: { series: FALLBACK_ANALYTICS },
     pollIntervalMs: 60000,
   });
 
+  // Prefer live data but gracefully degrade to seeded numbers if the API is offline.
   const points = Array.isArray(data?.series) && data?.series.length > 0 ? data.series : FALLBACK_ANALYTICS;
 
   const aggregates = useMemo(() => {
+    // Aggregate totals are derived client-side to keep the API surface slim.
     const totalCalls = points.reduce((sum, point) => sum + point.calls, 0);
     const avgDuration = Math.round(points.reduce((sum, point) => sum + point.avgDuration, 0) / points.length);
     const avgSentiment = points.reduce((sum, point) => sum + point.sentiment, 0) / points.length;
