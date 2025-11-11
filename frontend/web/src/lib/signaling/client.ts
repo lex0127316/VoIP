@@ -28,6 +28,13 @@ function buildUrl(token: string): string {
   return url.toString();
 }
 
+/**
+ * Thin wrapper around the signalling websocket.
+ *
+ * The softphone store holds a single instance of this class which is
+ * responsible for establishing the WS channel, parsing JSON messages emitted
+ * by the Rust signalling service, and surfacing lifecycle callbacks.
+ */
 export class SignalingClient {
   #callbacks: SignalingCallbacks;
   #socket: WebSocket | null = null;
@@ -42,6 +49,7 @@ export class SignalingClient {
       return Promise.resolve();
     }
 
+    // Reuse the in-flight promise so simultaneous callers share the same handshake.
     if (this.#connectionPromise) {
       return this.#connectionPromise;
     }
@@ -66,6 +74,7 @@ export class SignalingClient {
             const payload = JSON.parse(event.data) as SignalingEvent;
             this.#callbacks.onEvent?.(payload);
           } catch (error) {
+            // Bad payloads shouldn't tear down the whole connection.
             console.warn('failed to parse signaling payload', error);
           }
         };
@@ -97,6 +106,7 @@ export class SignalingClient {
       throw new Error('Signaling socket not connected');
     }
 
+    // All events are JSON encoded to match the Rust server API.
     this.#socket.send(JSON.stringify(event));
   }
 

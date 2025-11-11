@@ -9,10 +9,8 @@ pub struct TenantScopedId {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthClaims {
-    pub sub: Uuid,          // user id
+    pub sub: Uuid, // user id
     pub tenant_id: Uuid,
     pub exp: usize,
     pub iat: usize,
 }
-
-

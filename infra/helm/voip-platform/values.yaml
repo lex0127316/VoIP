@@ -23,7 +23,7 @@ services:
   pbx:
     image: { repository: example/pbx, tag: latest, pullPolicy: IfNotPresent }
     replicas: 1
-    port: 8082
+    port: 8081
     env:
       - name: DATABASE_URL
         value: postgres://postgres:postgres@postgres.example:5432/voip

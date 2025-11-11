@@ -1,3 +1,9 @@
+/**
+ * Shared HTTP utilities for talking to the Rust services.
+ *
+ * Handles base URL resolution (local vs production), JSON parsing and error
+ * shaping so feature hooks can remain terse.
+ */
 'use client';
 
 export type ApiError = {
@@ -65,6 +71,7 @@ export async function apiFetch<TResponse = unknown>(path: string, options: ApiFe
   }
 
   if (!parseJson) {
+    // Caller explicitly wants the raw Response body/side-effects only.
     return undefined as TResponse;
   }
 

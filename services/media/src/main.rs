@@ -1,11 +1,23 @@
-use axum::{routing::{get, post}, Json, Router};
 use axum::http::StatusCode;
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, net::{Ipv4Addr, SocketAddr}, sync::Arc};
+use axum::{
+    extract::State,
+    routing::{get, post},
+    Json, Router,
+};
+use serde::Serialize;
+use std::{
+    collections::HashMap,
+    net::{Ipv4Addr, SocketAddr},
+    sync::Arc,
+};
 use tokio::{net::UdpSocket, sync::RwLock};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
+/// Shared state for the media relay HTTP API.
+///
+/// Each allocation creates a [`Relay`] (backed by a UDP socket) which is stored
+/// so subsequent HTTP calls can look it up for tear-down/inspection.
 #[derive(Clone)]
 struct AppState {
     relays: Arc<RwLock<HashMap<Uuid, Arc<Relay>>>>,
@@ -19,6 +31,12 @@ struct Relay {
 }
 
 impl Relay {
+    /// Allocate a brand new UDP relay and spawn the forwarding loop.
+    ///
+    /// We bind an ephemeral port, keep track of which endpoint is "side A" or
+    /// "side B" based on a lightweight `HELLO` handshake, then mirror RTP/SRTP
+    /// datagrams between both sides.  The `tokio::spawn` keeps the hot packet
+    /// loop off the HTTP executor.
     async fn new() -> anyhow::Result<(Arc<Relay>, u16)> {
         let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await?;
         let local_port = socket.local_addr()?.port();
@@ -37,10 +55,13 @@ impl Relay {
             loop {
                 match relay_clone.socket.recv_from(&mut buf).await {
                     Ok((n, from)) => {
-                        if n == 0 { continue; }
+                        if n == 0 {
+                            continue;
+                        }
 
                         // On first packets from each side expect a small handshake: b"HELLO " + side ("a" or "b")
-                        if &buf[..n].starts_with(b"HELLO ") {
+                        // This avoids mis-routing stray RTP noise and mirrors the ICE nominated pair.
+                        if buf[..n].starts_with(b"HELLO ") {
                             let side = &buf[6..n];
                             if side == b"a" {
                                 let mut a = relay_clone.side_a.write().await;
@@ -64,8 +85,10 @@ impl Relay {
                             b.map(|addr| addr == from).unwrap_or(false)
                         };
 
+                        // Forward traffic toward the opposite negotiated leg.
                         if is_a {
                             if let Some(to) = *relay_clone.side_b.read().await {
+                                // We ignore send errors here; the next inbound packet will retry.
                                 let _ = relay_clone.socket.send_to(&buf[..n], to).await;
                             }
                         } else if is_b {
@@ -94,22 +117,36 @@ struct AllocResponse {
     relay_port: u16,
 }
 
-async fn alloc(Json(_): Json<serde_json::Value>, state: axum::extract::State<AppState>) -> Result<Json<AllocResponse>, StatusCode> {
-    let (relay, port) = Relay::new().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+async fn alloc(
+    State(state): State<AppState>,
+    Json(_): Json<serde_json::Value>,
+) -> Result<Json<AllocResponse>, StatusCode> {
+    // RTP allocations are short lived, so we keep them in memory behind an RwLock.
+    let (relay, port) = Relay::new()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let id = relay.id;
     state.relays.write().await.insert(id, relay);
-    Ok(Json(AllocResponse { session_id: id, relay_port: port }))
+    Ok(Json(AllocResponse {
+        session_id: id,
+        relay_port: port,
+    }))
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct IceServersResponse {
-    iceServers: Vec<serde_json::Value>,
+    ice_servers: Vec<serde_json::Value>,
 }
 
 async fn ice_servers() -> Json<IceServersResponse> {
     let mut servers = Vec::new();
     if let Ok(urls) = std::env::var("STUN_URLS") {
-        let list: Vec<String> = urls.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        let list: Vec<String> = urls
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
         if !list.is_empty() {
             servers.push(serde_json::json!({"urls": list}));
         }
@@ -125,11 +162,14 @@ async fn ice_servers() -> Json<IceServersResponse> {
             "credential": credential
         }));
     }
-    Json(IceServersResponse { iceServers: servers })
+    Json(IceServersResponse { ice_servers: servers })
 }
 
 #[tokio::main]
 async fn main() {
+    // The media service bridges WebRTC media planes (via UDP) and exposes ICE
+    // configuration so browsers know which STUN/TURN servers to use. The async
+    // runtime primarily hosts the UDP forwarding tasks spawned per allocation.
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
             std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
@@ -137,9 +177,12 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let state = AppState { relays: Arc::new(RwLock::new(HashMap::new())) };
+    let state = AppState {
+        relays: Arc::new(RwLock::new(HashMap::new())),
+    };
 
     let app = Router::new()
+        // REST endpoints consumed by the WebRTC layer for allocation + ICE details.
         .route("/health", get(|| async { "ok" }))
         .route("/alloc", post(alloc))
         .route("/ice", get(ice_servers))
@@ -151,5 +194,3 @@ async fn main() {
         .await
         .unwrap();
 }
-
-

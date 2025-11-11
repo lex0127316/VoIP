@@ -1,3 +1,9 @@
+/**
+ * Visual editor for PBX call flows.
+ *
+ * Fetches the canonical configuration from the API shim, lets supervisors
+ * append or reorder nodes, and writes changes back via optimistic mutations.
+ */
 'use client';
 
 import { useMemo, useState } from 'react';
@@ -36,10 +42,24 @@ export default function CallflowBuilder(): JSX.Element {
   const [newNodeLabel, setNewNodeLabel] = useState('');
   const [newNodeType, setNewNodeType] = useState<CallflowNode['type']>('menu');
 
-  const { data: callflows, refetch } = useApiQuery<Callflow[]>('/callflows', {
+  // Query the API shim for flows. A plain array or an object with `callflows`
+  // are both accepted so the component stays resilient while the backend evolves.
+  const { data: callflowsResponse, refetch } = useApiQuery<{ callflows?: Callflow[] }>('/callflows', {
     fallbackData: [DEFAULT_CALLFLOW],
   });
 
+  const callflows = useMemo<Callflow[]>(() => {
+    // Normalise the backend payload into a simple array for the rest of the UI.
+    if (Array.isArray(callflowsResponse)) {
+      return callflowsResponse;
+    }
+    if (Array.isArray(callflowsResponse?.callflows) && callflowsResponse.callflows.length > 0) {
+      return callflowsResponse.callflows;
+    }
+    return [DEFAULT_CALLFLOW];
+  }, [callflowsResponse]);
+
+  // PUT writes overwrite the entire document – mirroring how PBX receives configs today.
   const { mutate: saveCallflow, loading: saving } = useApiMutation<Callflow, Callflow>(
     '/callflows',
     {
@@ -51,8 +71,7 @@ export default function CallflowBuilder(): JSX.Element {
   );
 
   const selectedFlow = useMemo(() => {
-    const list = callflows ?? [DEFAULT_CALLFLOW];
-    return list.find((flow) => flow.id === selectedFlowId) ?? list[0];
+    return callflows.find((flow) => flow.id === selectedFlowId) ?? callflows[0];
   }, [callflows, selectedFlowId]);
 
   const handleAddNode = () => {
@@ -63,6 +82,7 @@ export default function CallflowBuilder(): JSX.Element {
       return;
     }
 
+    // Appending nodes is optimistic; the mutation fan-outs to the API/PBX bridge.
     const updatedFlow: Callflow = {
       ...selectedFlow,
       updatedAt: new Date().toISOString(),
