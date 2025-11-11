@@ -3,6 +3,12 @@ export type Session = {
   tenantId: string;
   exp: number;
   iat: number;
-} | null;
+};
+
+export type SessionStatus = 'loading' | 'authenticated' | 'unauthenticated';
+
+export type SessionResponse = {
+  session: Session | null;
+};
 
 

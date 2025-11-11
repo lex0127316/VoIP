@@ -1,16 +1,14 @@
-// @ts-nocheck
 import { NextResponse } from 'next/server';
 
-export async function POST() {
-  const res = NextResponse.json({ ok: true });
-  res.cookies.set('auth_token', '', {
+export async function POST(): Promise<NextResponse> {
+  const response = NextResponse.json({ ok: true });
+  response.cookies.set('auth_token', '', {
     httpOnly: true,
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
     path: '/',
     maxAge: 0,
   });
-  return res;
+  return response;
 }
-
 
