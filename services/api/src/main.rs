@@ -2,26 +2,101 @@
 //! still taking shape. Every handler returns deterministic data so the UI can
 //! exercise navigation, state machines, and error boundaries.
 
-use axum::{http::Method, routing::get, Json, Router};
+use anyhow::anyhow;
+use axum::{
+    extract::State,
+    http::{Method, StatusCode},
+    response::{IntoResponse, Response},
+    routing::get,
+    Json, Router,
+};
+use serde::Serialize;
 use serde_json::json;
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+#[derive(Clone)]
+struct AppState {
+    metrics_repo: MetricsRepository,
+}
+
+impl AppState {
+    fn metrics_repo(&self) -> &MetricsRepository {
+        &self.metrics_repo
+    }
+}
+
+#[derive(Clone)]
+struct MetricsRepository {
+    pool: Pool<Postgres>,
+}
+
+impl MetricsRepository {
+    fn new(pool: Pool<Postgres>) -> Self {
+        Self { pool }
+    }
+
+    async fn get_overview(&self) -> anyhow::Result<MetricsOverview> {
+        let record = sqlx::query_as::<_, MetricsOverview>(
+            r#"
+                SELECT
+                    active_calls,
+                    concurrent_capacity,
+                    avg_handle_time_seconds AS avg_handle_time,
+                    service_level,
+                    abandoned_rate
+                FROM analytics_metrics_overview
+                ORDER BY captured_at DESC
+                LIMIT 1
+            "#,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        record.ok_or_else(|| anyhow!("no metrics snapshot available"))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+struct MetricsOverview {
+    active_calls: i64,
+    concurrent_capacity: i64,
+    avg_handle_time: i64,
+    service_level: f64,
+    abandoned_rate: f64,
+}
+
+#[derive(Debug, thiserror::Error)]
+enum ApiError {
+    #[error(transparent)]
+    Unexpected(#[from] anyhow::Error),
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        match self {
+            ApiError::Unexpected(error) => {
+                tracing::error!(?error, "unexpected api error");
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            }
+        }
+    }
+}
 
 /// Lightweight health probe used by readiness checks and dashboards.
 async fn health() -> Json<serde_json::Value> {
     Json(json!({"status":"ok"}))
 }
 
-/// Stub out metrics normally delivered by the analytics stack.
-async fn metrics_overview() -> Json<serde_json::Value> {
-    Json(json!({
-        "activeCalls": 12,
-        "concurrentCapacity": 48,
-        "avgHandleTime": 305,
-        "serviceLevel": 0.92,
-        "abandonedRate": 0.04
-    }))
+/// Fetch live metrics aggregated by the analytics pipeline.
+async fn metrics_overview(
+    State(state): State<AppState>,
+) -> Result<Json<MetricsOverview>, ApiError> {
+    let metrics = state.metrics_repo().get_overview().await?;
+    Ok(Json(metrics))
 }
 
 /// Simulate a paged set of users for the admin portal.
@@ -135,6 +210,23 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let db_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/voip".to_string());
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .expect("failed to connect to postgres");
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("failed to run migrations");
+
+    let state = AppState {
+        metrics_repo: MetricsRepository::new(pool.clone()),
+    };
+
     let port = std::env::var("API_PORT")
         .ok()
         .and_then(|value| value.parse::<u16>().ok())
@@ -154,7 +246,8 @@ async fn main() {
         .route("/users", get(list_users).post(invite_user))
         .route("/callflows", get(list_callflows).put(upsert_callflow))
         .route("/analytics/voice", get(analytics_voice))
-        .layer(cors);
+        .layer(cors)
+        .with_state(state);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tracing::info!(%addr, "api service starting");
 
